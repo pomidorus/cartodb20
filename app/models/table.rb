@@ -1253,14 +1253,16 @@ TRIGGER
 
     varnish_host = Cartodb.config[:varnish_management].try(:[],'host') || '127.0.0.1'
     varnish_port = Cartodb.config[:varnish_management].try(:[],'port') || 6082
+    varnish_timeout = Cartodb.config[:varnish_management].try(:[],'timeout') || 5
 
     owner.in_database(:as => :superuser).run(<<-TRIGGER
     CREATE OR REPLACE FUNCTION update_timestamp() RETURNS trigger AS
     $$
+        timeout = #{varnish_timeout}
         if 'varnish' not in GD:
             import varnish
             try:
-              GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}))
+              GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}, timeout))
             except:
               #some error ocurred
               pass
@@ -1274,7 +1276,7 @@ TRIGGER
             # try again
             import varnish
             try:
-              client = GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}))
+              client = GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}, timeout))
               client.fetch('purge obj.http.X-Cache-Channel == #{self.database_name}')
             except:
               pass
