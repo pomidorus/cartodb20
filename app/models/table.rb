@@ -1254,31 +1254,35 @@ TRIGGER
     varnish_host = Cartodb.config[:varnish_management].try(:[],'host') || '127.0.0.1'
     varnish_port = Cartodb.config[:varnish_management].try(:[],'port') || 6082
     varnish_timeout = Cartodb.config[:varnish_management].try(:[],'timeout') || 5
+    varnish_critical = Cartodb.config[:varnish_management].try(:[],'critical') == true ? 1 : 0
 
     owner.in_database(:as => :superuser).run(<<-TRIGGER
     CREATE OR REPLACE FUNCTION update_timestamp() RETURNS trigger AS
     $$
+        critical = #{varnish_critical}
         timeout = #{varnish_timeout}
+        import varnish
         if 'varnish' not in GD:
-            import varnish
             try:
               GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}, timeout))
-            except:
-              #some error ocurred
-              pass
+            except Exception as err:
+              if critical:
+                plpy.error('Varnish connection error: ' +  str(err))
+              else:
+                plpy.warning('An error occurred on varnish connection: ' + str(err))
+                pass
         client = GD.get('varnish', None)
 
         table_name = TD["table_name"]
         if client:
           try:
             client.fetch('purge obj.http.X-Cache-Channel ~ "^#{self.database_name}:(.*%s.*)|(table)$"' % table_name)
-          except:
-            # try again
-            import varnish
-            try:
-              client = GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}, timeout))
-              client.fetch('purge obj.http.X-Cache-Channel == #{self.database_name}')
-            except:
+          except Exception as err:
+            # del GD['varnish'] # should we try reconnecting on next run ?
+            if critical:
+              plpy.error('Varnish fetch error: ' +  str(err))
+            else:
+              plpy.warning('An error occurred on varnish fetch: ' + str(err))
               pass
     $$
     LANGUAGE 'plpythonu' VOLATILE;
