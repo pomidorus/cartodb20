@@ -1261,9 +1261,9 @@ TRIGGER
     $$
         critical = #{varnish_critical}
         timeout = #{varnish_timeout}
-        import varnish
         if 'varnish' not in GD:
             try:
+              import varnish
               GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}, timeout))
             except Exception as err:
               if critical:
