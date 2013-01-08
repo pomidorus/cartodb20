@@ -1255,35 +1255,42 @@ TRIGGER
     varnish_port = Cartodb.config[:varnish_management].try(:[],'port') || 6082
     varnish_timeout = Cartodb.config[:varnish_management].try(:[],'timeout') || 5
     varnish_critical = Cartodb.config[:varnish_management].try(:[],'critical') == true ? 1 : 0
+    varnish_retry = Cartodb.config[:varnish_management].try(:[],'retry') || 5
 
     owner.in_database(:as => :superuser).run(<<-TRIGGER
     CREATE OR REPLACE FUNCTION update_timestamp() RETURNS trigger AS
     $$
         critical = #{varnish_critical}
         timeout = #{varnish_timeout}
-        if 'varnish' not in GD:
-            try:
-              import varnish
-              GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}, timeout))
-            except Exception as err:
-              if critical:
-                plpy.error('Varnish connection error: ' +  str(err))
-              else:
-                plpy.warning('An error occurred on varnish connection: ' + str(err))
-                pass
+        retry = #{varnish_retry}
+
         client = GD.get('varnish', None)
 
-        table_name = TD["table_name"]
-        if client:
+        while True:
+
+          if not client:
+              try:
+                import varnish
+                client = GD['varnish'] = varnish.VarnishHandler(('#{varnish_host}', #{varnish_port}, timeout))
+              except Exception as err:
+                plpy.warning('Varnish connection error: ' +  str(err))
+                # NOTE: we won't retry on connection error
+                if critical:
+                  plpy.error('Varnish connection error: ' +  str(err))
+                break
+
           try:
+            table_name = TD["table_name"]
             client.fetch('purge obj.http.X-Cache-Channel ~ "^#{self.database_name}:(.*%s.*)|(table)$"' % table_name)
+            break
           except Exception as err:
-            # del GD['varnish'] # should we try reconnecting on next run ?
-            if critical:
-              plpy.error('Varnish fetch error: ' +  str(err))
-            else:
-              plpy.warning('An error occurred on varnish fetch: ' + str(err))
-              pass
+            plpy.warning('Varnish fetch error: ' + str(err))
+            client = GD['varnish'] = None # force reconnect
+            if not retry:
+              if critical:
+                plpy.error('Varnish fetch error: ' +  str(err))
+              break
+            retry -= 1 # try reconnecting
     $$
     LANGUAGE 'plpythonu' VOLATILE;
 
