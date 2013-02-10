@@ -1,6 +1,7 @@
 # encoding: utf-8
 require_relative './memory'
 require_relative './redis'
+require_relative './sequel'
 
 module DataRepository
   module Backend
@@ -13,6 +14,7 @@ module DataRepository
         # TYPE CHECKING OMG!! SEND THE CRAFTSMANSHIPTROOPERS!!
         return backend_or_connection                      if is_backend?
         return Backend::Redis.new(backend_or_connection)  if is_redis?
+        return Backend::Sequel.new(backend_or_connection) if is_sequel?
         return default_backend
       end #detect
 
@@ -31,6 +33,10 @@ module DataRepository
       def is_redis?
         backend_or_connection.respond_to? :zremrangebyscore
       end #is_redis?
+
+      def is_sequel?
+        backend_or_connection.respond_to? :supports_create_table_if_not_exists?
+      end
     end # Detector
   end # Backend
 end # DataRepository
